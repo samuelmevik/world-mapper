@@ -1,88 +1,149 @@
 import type { Article } from "../types";
-import data from "./words_dictionary.json";
+const { default: data } = await import("../assets/words_dictionary.json");
+
+type Vector = Record<string, number>;
 
 const STOP_WORDS = new Set(Object.keys(data));
 
-const tokenizeText = (text: string) => text
+const tokenizeText = (text: string, filterStopWords: boolean = false) => text
   .toLowerCase()
   .replaceAll(/[^a-z0-9\s]/g, "") // Remove punctuation
   .split(/\s+/)
-  .filter(word => word.length > 2 && !STOP_WORDS.has(word));
+  .filter(word =>
+    word.length > 2 &&
+    (!filterStopWords || !STOP_WORDS.has(word))
+  );
 
-const IDF = (documents: string[][], vocabulary: string[]) => {
-  const idf: Record<string, number> = {};
-  for (const term of vocabulary) {
-    const docCount = documents.filter(doc => doc.includes(term)).length;
-    idf[term] = Math.log(documents.length / (1 + docCount));
+const calculateIDF = (docs: string[][]): Vector => {
+  const idf: Vector = {};
+  const N = docs.length;
+
+  const docFreq: Record<string, number> = {};
+  for (const tokens of docs) {
+    const uniqueTokens = new Set(tokens);
+    for (const token of uniqueTokens) {
+      docFreq[token] = (docFreq[token] || 0) + 1;
+    }
+  }
+
+  // Calculate Inverse Document Frequency
+  for (const [term, count] of Object.entries(docFreq)) {
+    idf[term] = Math.log(N / (1 + count));
   }
   return idf;
-}
+};
 
-const TF = (documents: string[][], idf: Record<string, number>) =>
-  documents.map(doc => {
-    const vec: Record<string, number> = {};
-
-    for (const word of doc) {
-      vec[word] = (vec[word] || 0) + 1; // Term Frequency
+const calculateTFIDF = (tokens: string[], idf: Vector): Vector => {
+  const vec: Vector = {};
+  // Calculate Term Frequency (TF)
+  for (const token of tokens) {
+    vec[token] = (vec[token] || 0) + 1;
+  }
+  // Multiply by IDF
+  for (const term of Object.keys(vec)) {
+    // If term exists in corpus IDF, use it, otherwise 0 (ignore unknown query terms)
+    if (idf[term]) {
+      vec[term] = vec[term] * idf[term];
+    } else {
+      delete vec[term]; // Remove noise
     }
-    // Multiply TF by IDF
-    for (const word of Object.keys(vec)) {
-      vec[word] = vec[word] * idf[word];
-    }
-    return vec;
-  });
+  }
+  return vec;
+};
 
-const getCosineSimilarity = (vecA: Record<string, number>, vecB: Record<string, number>) => {
-  const commonWords = Object.keys(vecA).filter(word => vecB[word]);
-  if (commonWords.length === 0) return 0;
+const getCosineSimilarity = (vecA: Vector, vecB: Vector): number => {
+
+  const termsA = Object.keys(vecA);
+  const termsB = Object.keys(vecB);
+
+  if (termsA.length === 0 || termsB.length === 0) return 0;
 
   let dotProduct = 0;
-  let magA = 0;
-  let magB = 0;
+  const [smaller, larger] = termsA.length < termsB.length ? [vecA, vecB] : [vecB, vecA];
 
-  for (const word of commonWords) {
-    dotProduct += vecA[word] * vecB[word];
+  for (const term of Object.keys(smaller)) {
+    if (larger[term]) {
+      dotProduct += smaller[term] * larger[term];
+    }
   }
 
-  for (const val of Object.values(vecA)) {
-    magA += val * val;
-  }
-  for (const val of Object.values(vecB)) {
-    magB += val * val;
-  }
+  const magA = Math.sqrt(Object.values(vecA).reduce((acc, val) => acc + val * val, 0));
+  const magB = Math.sqrt(Object.values(vecB).reduce((acc, val) => acc + val * val, 0));
 
-  return dotProduct / (Math.sqrt(magA) * Math.sqrt(magB));
+  if (magA === 0 || magB === 0) return 0;
+
+  return dotProduct / (magA * magB);
+};
+
+export const createSearchIndex = (articles: Article[]) => {
+  const docs = articles.map(a => tokenizeText(`${a.title} ${a.content}`));
+  const idf = calculateIDF(docs);
+  const articleVectors = docs.map(doc => calculateTFIDF(doc, idf));
+
+  return (query: string, threshold = 0.05) => {
+    const queryTokens = tokenizeText(query);
+    if (queryTokens.length === 0) return [];
+
+    const queryVector = calculateTFIDF(queryTokens, idf);
+
+    return articles
+      .map((article, index) => ({
+        article,
+        score: getCosineSimilarity(queryVector, articleVectors[index])
+      }))
+      .filter(result => result.score > threshold)
+      .sort((a, b) => b.score - a.score);
+  };
 };
 
 
+let index: ((query: string, threshold?: number) => { article: Article; score: number }[]) | null = null;
+export const searchData = (articles: Article[], query: string) => {
+  index ??= createSearchIndex(articles);
+  return index(query);
+};
 
-export const generateGraphData = (articles: Article[], threshold = 0) => {
-  const documents = articles.map(article => tokenizeText(article.content + " " + article.title));
-  const vocabulary = [...new Set(documents.flat())];
 
-  const idf = IDF(documents, vocabulary);
-  const vectors = TF(documents, idf);
+export const generateGraphData = (articles: Article[], { threshold = 0.15 } = {}) => {
+  const docs = articles.map(a => tokenizeText(`${a.title} ${a.content}`, true));
+  const idf = calculateIDF(docs);
+  const vectors = docs.map(doc => calculateTFIDF(doc, idf));
 
-  const nodes = articles.map((article, index) => ({
-    id: index,
+  const nodes = articles.map((article) => ({
     ...article,
-    val: 5
-  }))
+    neighbors: [] as number[],
+    size: 1
+  }));
+
   const links = [];
+  let maxSim = 0;
+
   for (let i = 0; i < vectors.length; i++) {
     for (let j = i + 1; j < vectors.length; j++) {
       const sim = getCosineSimilarity(vectors[i], vectors[j]);
-      const commonWords = Object.keys(vectors[i]).filter(word => vectors[j][word]);
+
       if (sim > threshold) {
+        if (sim > maxSim) maxSim = sim;
+
+        const commonWords = Object.keys(vectors[i]).filter(word => vectors[j][word]);
+
         links.push({
           source: i,
           target: j,
-          value: sim, // We can use this to make the line thicker
+          similarity: sim,
           commonWords,
         });
+
+        nodes[i].neighbors.push(j);
+        nodes[j].neighbors.push(i);
       }
     }
   }
-  return { nodes, links };
-}
 
+  // Adjust node size based on connectivity
+  for (const node of nodes) {
+    node.size = Math.max(2, Math.sqrt(node.neighbors.length) * 4);
+  }
+
+  return { nodes, links, maxSim };
+};

@@ -1,24 +1,41 @@
-import { useMemo, useState, useRef } from 'react'
-import { generateGraphData } from './algo/textProcessor';
+import { useMemo, useState, useRef, useCallback } from 'react'
 import ForceGraph2D from 'react-force-graph-2d';
-import type { ForceGraphMethods, NodeObject } from 'react-force-graph-2d';
+import ForceGraph3D from 'react-force-graph-3d';
+import type { ForceGraphMethods as FGMethods2D, NodeObject } from 'react-force-graph-2d';
+import type { ForceGraphMethods as FGMethods3D, NodeObject as NodeObject3D } from 'react-force-graph-3d';
 import type { Article } from './types';
+import { Header } from './components/Header';
+import { ArticleDetails } from './components/ArticleDetails';
+import { generateGraphData, searchData } from './algo/textProcessor';
+import { ARTICLES } from './articles';
+import ArticleSheet from './components/ArticleSheet';
+import { ChatWrapper } from './components/ChatWrapper';
 
-const SAMPLE_ARTICLES = [
-  { title: "React Basics", content: "React is a JavaScript library for building user interfaces. It uses components." },
-  { title: "Vue vs React", content: "Vue is similar to React. Both are JavaScript libraries for interfaces." },
-  { title: "Cooking Pasta", content: "Boil water. Add salt. Cook pasta for 10 minutes. Drain and serve with sauce." },
-  { title: "Italian Cuisine", content: "Pasta and Pizza are staples of Italian cuisine. Tomato sauce is common." },
-  { title: "Machine Learning", content: "Machine learning uses algorithms to parse data, learn from it, and make predictions." },
-  { title: "AI and Data", content: "Artificial Intelligence relies on data. Algorithms process this data." },
-  { title: "Pizza Dough", content: "Flour, water, yeast, and salt are needed for pizza dough. Let it rise." },
-];
+
+function mapValueToRgb(value: number, maxSim: number): string {
+  const normalized = maxSim === 0 ? 0 : value / maxSim;
+  const clamped = Math.min(1, Math.max(0, normalized));
+  const weight = 0.5;
+  const weightedValue = Math.pow(clamped, weight);
+
+  const r = Math.floor(weightedValue * 255);
+  const b = Math.floor((1 - weightedValue) * 255);
+  const g = 0;
+
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 function App() {
-  const [data, setData] = useState(() => generateGraphData(SAMPLE_ARTICLES));
-  const [selectedNode, setSelectedNode] = useState<NodeObject<Article> | null>(null);
+
+  const [data, setData] = useState(() => generateGraphData(ARTICLES));
+  const lookUp = useMemo(() => data.nodes.reduce((acc, node) => ({ ...acc, [node.id]: node }), {} as Record<string, NodeObject<Article> | NodeObject3D<Article>>), [data]);
+  const genData = useCallback(({ threshold }: { threshold?: number, oneConnection?: boolean }) => setData(generateGraphData(ARTICLES, { threshold })), []);
+  const [selectedNode, setSelectedNode] = useState<NodeObject<Article> | NodeObject3D<Article> | null>(null);
   const [search, setSearch] = useState("");
-  const ref = useRef<ForceGraphMethods<NodeObject<Article>>>(undefined);
+  const ref2D = useRef<FGMethods2D<NodeObject<Article>>>(undefined);
+  const ref3D = useRef<FGMethods3D<NodeObject3D<Article>>>(undefined);
+  const [mode, setMode] = useState<"2d" | "3d">("2d");
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   const filteredNodes = useMemo(() => {
     if (!search) return new Set();
@@ -30,78 +47,102 @@ function App() {
 
   const handleNodeClick = (node: NodeObject<Article>) => {
     setSelectedNode(node);
-    ref.current?.centerAt(node.x, node.y, 1000);
-    ref.current?.zoom(2, 2000);
+    if (mode === "2d") {
+      ref2D.current?.centerAt(node.x, node.y, 1000);
+      ref2D.current?.zoom(2, 2000);
+
+    } else {
+      const distance = 40;
+      const distRatio = 1 + distance / Math.hypot(node.x!, node.y!, node.z!);
+
+      ref3D.current?.cameraPosition(
+        { x: node.x! * distRatio, y: node.y! * distRatio, z: node.z! * distRatio }, // New camera location
+        { x: node.x!, y: node.y!, z: node.z },
+        2000
+      );
+    }
+  }
+
+  const zoomToSearchExtent = () => {
+    if (mode === "2d") {
+      ref2D.current?.zoomToFit(400, 100, (node: NodeObject<Article>) => filteredNodes.has(node.id));
+    } else {
+      ref3D.current?.zoomToFit(400, 100, (node: NodeObject3D<Article>) => filteredNodes.has(node.id));
+    }
+  }
+
+  const onBadgeClick = (id: number | string) => {
+    const node = lookUp[id];
+    if (!node) return;
+    handleNodeClick(node);
+  }
+
+  const nodeColor = (node: NodeObject<Article> | NodeObject3D<Article>) => {
+    return (selectedNode?.id === node.id ? "purple" : filteredNodes.has(node.id) ? "green" : "#666");
   }
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div className="h-screen w-full flex flex-col  overflow-hidden text-foreground">
 
-      {/* --- Header / Search Bar --- */}
-      <div style={{ padding: "10px", background: "#f0f0f0", display: "flex", gap: "10px", borderBottom: "1px solid #ccc", zIndex: 10 }}>
-        <input
-          type="text"
-          placeholder="Search articles..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ padding: "8px", flex: 1, borderRadius: "4px", border: "1px solid #ccc" }}
-        />
-        <div style={{ padding: "8px" }}>
-          {data.nodes.length} Articles | {data.links.length} Connections
-        </div>
-      </div>
+      <Header
+        search={search}
+        onSearchChange={setSearch}
+        nodeCount={data.nodes.length}
+        linkCount={data.links.length}
+        setData={genData}
+        setMode={setMode}
+        zoomToSearchExtent={zoomToSearchExtent}
+        setIsSheetOpen={setIsSheetOpen}
+      />
 
-      {/* --- Main Content Area --- */}
-      <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+      <main className="flex-1 relative flex overflow-hidden">
+        {
+          mode === "2d" && (
 
-        {/* The Graph */}
-        <ForceGraph2D
-          ref={ref}
-          graphData={data}
-          nodeLabel="title"
-          nodeColor={node => filteredNodes.has(node.id) ? "#ff0000" : (selectedNode === node ? "#3f51b5" : "#666")}
-          nodeRelSize={6}
-          linkWidth={5}
-          linkLabel={link => link.commonWords?.join(", ")}
-          linkColor={() => "blue"}
-          onNodeClick={handleNodeClick}
-          onBackgroundClick={() => setSelectedNode(null)}
-          // Physics settings to separate clusters nicely
-          d3VelocityDecay={0.1}
-        />
-
-        {/* The "Expandable" Article Overlay */}
-        {selectedNode && (
-          <div style={{
-            position: "absolute",
-            top: "20px",
-            right: "20px",
-            width: "300px",
-            maxHeight: "80%",
-            overflowY: "auto",
-            background: "white",
-            padding: "20px",
-            borderRadius: "8px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            border: "1px solid #ddd"
-          }}>
-            <button
-              onClick={() => setSelectedNode(null)}
-              style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontSize: "16px" }}
-            >
-              ✕
-            </button>
-            <h2 style={{ marginTop: 0 }}>{selectedNode.title}</h2>
-            <p style={{ lineHeight: "1.6", color: "#333" }}>{selectedNode.content}</p>
-            <hr />
-            <small style={{ color: "#777" }}>
-              <strong>Keywords (TF-IDF):</strong><br />
-              {/* This is a simple visualization of what words connected this article */}
-              Matches found via shared vocabulary.
-            </small>
-          </div>
+            <ForceGraph2D
+              ref={ref2D}
+              graphData={data}
+              nodeLabel="title"
+              nodeColor={nodeColor}
+              linkLabel={link => link.commonWords?.join(", ")}
+              linkColor={(link) =>
+                mapValueToRgb(link.similarity, data.maxSim)
+              }
+              linkWidth={link => link.size}
+              onNodeClick={handleNodeClick}
+              onBackgroundClick={() => setSelectedNode(null)}
+              d3VelocityDecay={0.1}
+            />)
+        }
+        {mode === "3d" && (
+          <ForceGraph3D
+            ref={ref3D}
+            graphData={data}
+            nodeLabel="title"
+            backgroundColor="#ffffff"
+            nodeColor={nodeColor}
+            linkLabel={link => link.commonWords?.join(", ")}
+            linkColor={(link) =>
+              mapValueToRgb(link.similarity, data.maxSim)
+            }
+            linkWidth={link => {
+              return link.similarity * 5;
+            }}
+            onNodeClick={handleNodeClick}
+            onBackgroundClick={() => setSelectedNode(null)}
+            d3VelocityDecay={0.1}
+          />
         )}
-      </div>
+        {
+          selectedNode && <ArticleDetails
+            search={search}
+            node={selectedNode}
+            onClose={() => setSelectedNode(null)}
+          />
+        }
+        <ChatWrapper onBadgeClick={onBadgeClick} />
+        {isSheetOpen && <ArticleSheet onArticleClick={onBadgeClick} articles={searchData(ARTICLES, search)} onClose={() => setIsSheetOpen(false)} />}
+      </main>
     </div>
   );
 }

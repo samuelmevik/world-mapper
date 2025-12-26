@@ -1,0 +1,1 @@
+export const model = "Phi-3.5-mini-instruct-q4f16_1-MLC";
