@@ -7,6 +7,9 @@
 
 Unlike standard note taking apps, World Mapper uses a custom **TF-IDF engine** to weight links based on "Fantasy Keywords" unique terms that don't exist in the standard English lexicon.
 
+[World Mapper Website](https://samuelmevik.github.io/world-mapper/)
+> Currently doesnt work in firefox and most mobile phones will struggle with the Chatbot.
+
 [Video showing World Mapper in action](https://www.youtube.com/watch?v=7ZIddP6vYfU)
 
 [![Video showing World Mapper in action](https://img.youtube.com/vi/7ZIddP6vYfU/0.jpg)](https://www.youtube.com/watch?v=7ZIddP6vYfU)
