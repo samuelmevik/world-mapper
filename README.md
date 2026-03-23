@@ -1,73 +1,64 @@
-# React + TypeScript + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+---
 
-Currently, two official plugins are available:
+# World Mapper
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+**World Mapper** is a high performance, interactive knowledge management system for TTRPG world building. It transforms raw lore documents into a dynamic, traversable network using **Vector Space Modeling** to reveal semantic connections between locations, NPCs, and events.
 
-## React Compiler
+Unlike standard note taking apps, World Mapper uses a custom **TF-IDF engine** to weight links based on "Fantasy Keywords" unique terms that don't exist in the standard English lexicon.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+[Video showing World Mapper in action](https://www.youtube.com/watch?v=7ZIddP6vYfU)
 
-## Expanding the ESLint configuration
+[![Video showing World Mapper in action](https://img.youtube.com/vi/7ZIddP6vYfU/0.jpg)](https://www.youtube.com/watch?v=7ZIddP6vYfU)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Key Features
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+* **Custom TF-IDF Vector Engine:** The app builds a local search index and connection matrix by calculating term importance across your entire corpus.
+* **"Fantasy First" Graph Logic:** By filtering out "stop words" from a 350k+ English word dictionary, the graph prioritizes links based on your unique world building terminology (e.g. *Mithral*).
+* **Dynamic Force-Directed Graph:** Toggle between 2D and 3D views. Node sizes scale dynamically based on their degree of connectivity (importance in the world).
+* **Local AI Oracle (Phi-3.5):** A fully private, in browser chatbot powered by `Web-LLM`. It acts as a world guide, answering queries based on your lore without sending data to a server.
+* **Live Search & Highlighting:** Uses **Cosine Similarity** to rank results, providing realtime highlighting in both the graph visualization and the document viewer.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Technical Implementation
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Graph Generation Logic
+The graph is generated on the fly based on a user defined similarity threshold:
+1.  **Stop Word Filtering:** Standard English is ignored to ensure links are "meaningful" (e.g., two towns linked by a deity name rather than the word "the").
+2.  **Edge Creation:** Links are established only if the Cosine Similarity $S > \text{threshold}$.
+3.  **Metadata:** Every link stores `commonWords`, allowing the UI to show exactly *why* two documents are connected.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
+
+## Tech Stack
+
+| Category          | Tools                                                    |
+| :---------------- | :------------------------------------------------------- |
+| **Frontend**      | React 19, Vite, TypeScript, Tailwind CSS 4.0             |
+| **Visualization** | `react-force-graph` (2D/3D), D3                          |
+| **LLM / AI**      | `@mlc-ai/web-llm` (Phi-3.5-mini), `@xenova/transformers` |
+| **Search Engine** | Custom TF-IDF implementation + `voy-search`              |
+| **UI Components** | Radix UI, Lucide Icons                                   |
+| **Runtime**       | Bun                                                      |
+
+---
+
+## Getting Started
+
+1.  **Install dependencies:**
+    ```bash
+    bun install
+    ```
+2.  **Generate Indices:**
+    Process your lore documents into the vector index and LLM embeddings.
+    ```bash
+    bun run gen:search
+    bun run gen:llm
+    ```
+3.  **Run Development:**
+    ```bash
+    bun run dev
+    ```
